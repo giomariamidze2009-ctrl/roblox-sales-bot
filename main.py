@@ -14,7 +14,7 @@ headers = {
 
 url = f"https://economy.roblox.com/v2/groups/{GROUP_ID}/transactions?transactionType=Sale&limit=10"
 
-seen_ids = set()
+seen_ids = []
 print("🚀 Bot started...")
 
 def send_discord_message(content):
@@ -41,7 +41,7 @@ while True:
                 tx_id = tx["id"]
 
                 if tx_id not in seen_ids:
-                    seen_ids.add(tx_id)
+                    seen_ids.append(tx_id)
 
                     username = tx["agent"]["name"]
                     item = tx["details"]["name"]
