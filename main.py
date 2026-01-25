@@ -15,6 +15,7 @@ headers = {
 url = f"https://economy.roblox.com/v2/groups/{GROUP_ID}/transactions?transactionType=Sale&limit=10"
 
 seen_ids = []
+first_run = True
 print("🚀 Bot started...")
 
 def send_discord_message(content):
@@ -37,11 +38,17 @@ while True:
         if r.status_code == 200:
             data = r.json()["data"]
 
+            # Sort by transaction ID so older sales are sent first
+            data.sort(key=lambda tx: tx["id"])
+
+            new_sales_count = 0
+
             for tx in data:
                 tx_id = tx["id"]
 
                 if tx_id not in seen_ids:
                     seen_ids.append(tx_id)
+                    new_sales_count += 1
 
                     username = tx["agent"]["name"]
                     item = tx["details"]["name"]
@@ -52,6 +59,16 @@ while True:
                     # Send to Discord
                     content = f"🛒 **NEW SALE**\nUser: {username}\nItem: {item}\nAmount: {amount}"
                     send_discord_message(content)
+
+            if first_run:
+                print(f"⚡ First run: sent {new_sales_count} existing sales")
+                first_run = False
+            else:
+                if new_sales_count == 0:
+                    print("⏳ No new sales this round")
+                else:
+                    print(f"⚡ Sent {new_sales_count} new sale(s)")
+
         else:
             print("Error:", r.text)
 
