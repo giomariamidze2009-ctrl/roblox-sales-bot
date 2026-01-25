@@ -2,7 +2,6 @@ import os
 import time
 import requests
 
-# ─── ENV VARIABLES ─────────────────────────────
 ROBLOX_COOKIE = os.getenv("ROBLOX_COOKIE")
 GROUP_ID = os.getenv("GROUP_ID")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
@@ -14,7 +13,7 @@ headers = {
 
 url = f"https://economy.roblox.com/v2/groups/{GROUP_ID}/transactions?transactionType=Sale&limit=10"
 
-seen_ids = []
+seen_ids = set()
 first_run = True
 print("🚀 Bot started...")
 
@@ -29,7 +28,6 @@ def send_discord_message(content):
     except Exception as e:
         print(f"❌ Discord error: {e}")
 
-# ─── MAIN LOOP ────────────────────────────────
 while True:
     try:
         r = requests.get(url, headers=headers)
@@ -37,17 +35,18 @@ while True:
 
         if r.status_code == 200:
             data = r.json()["data"]
-
-            # Sort by transaction ID so older sales are sent first
-            data.sort(key=lambda tx: tx["id"])
+            print(f"🔢 Transactions received: {len(data)}")
+            
+            # Sort oldest first (ascending by id)
+            data.sort(key=lambda tx: int(tx["id"]))
 
             new_sales_count = 0
 
             for tx in data:
-                tx_id = tx["id"]
+                tx_id = str(tx["id"])  # Convert to string to be safe
 
                 if tx_id not in seen_ids:
-                    seen_ids.append(tx_id)
+                    seen_ids.add(tx_id)
                     new_sales_count += 1
 
                     username = tx["agent"]["name"]
@@ -56,12 +55,11 @@ while True:
 
                     print(f"🆕 NEW SALE: {username} | {item} | {amount}")
 
-                    # Send to Discord
                     content = f"🛒 **NEW SALE**\nUser: {username}\nItem: {item}\nAmount: {amount}"
                     send_discord_message(content)
 
             if first_run:
-                print(f"⚡ First run: sent {new_sales_count} existing sales")
+                print(f"⚡ First run: sent {new_sales_count} sale(s)")
                 first_run = False
             else:
                 if new_sales_count == 0:
