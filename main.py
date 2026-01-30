@@ -7,81 +7,90 @@ ROBLOX_COOKIE = os.getenv("ROBLOX_COOKIE")
 GROUP_ID = os.getenv("GROUP_ID")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
+if not all([ROBLOX_COOKIE, GROUP_ID, DISCORD_WEBHOOK]):
+    raise Exception("Missing ENV variables: ROBLOX_COOKIE, GROUP_ID, DISCORD_WEBHOOK")
+
 headers = {
     "Cookie": f".ROBLOSECURITY={ROBLOX_COOKIE}",
     "User-Agent": "Mozilla/5.0"
 }
 
-url = f"https://economy.roblox.com/v2/groups/{GROUP_ID}/transactions?transactionType=Sale&limit=10"
+# Increase limit for safety
+url = f"https://economy.roblox.com/v2/groups/{GROUP_ID}/transactions?transactionType=Sale&limit=50"
 
-seen_ids = set()
-first_run = True
-print("🚀 Bot started...")
+print("🚀 Roblox Sale Bot Started...")
+
+last_seen_id = None   # Only track latest sale ID
 
 # ─── FUNCTION TO SEND DISCORD MESSAGE ─────────
 def send_discord_message(content):
     try:
         data = {"content": content}
-        response = requests.post(DISCORD_WEBHOOK, json=data)
-        if response.status_code == 204:
-            print("✅ Discord message sent")
+        r = requests.post(DISCORD_WEBHOOK, json=data, timeout=10)
+        if r.status_code == 204:
+            print("✅ Discord sent")
         else:
-            print(f"❌ Failed to send message, status code: {response.status_code}")
+            print(f"❌ Discord failed: {r.status_code} | {r.text}")
     except Exception as e:
         print(f"❌ Discord error: {e}")
 
 # ─── MAIN LOOP ────────────────────────────────
 while True:
     try:
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, timeout=15)
         print("Status:", r.status_code)
 
-        if r.status_code == 200:
-            data = r.json().get("data", [])
-            print(f"🔢 Transactions received: {len(data)}")
-            tx_ids_in_batch = [str(tx["id"]) for tx in data]
+        if r.status_code != 200:
+            print("❌ Roblox API error:", r.text)
+            time.sleep(30)
+            continue
 
-            # Sort oldest first
-            data.sort(key=lambda tx: int(tx["id"]))
+        data = r.json().get("data", [])
 
-            # ─── FIRST RUN ──────────────────────────
-            if first_run:
-                print(f"⚡ First run: sending all {len(data)} transactions")
-                for tx in data:
+        if not data:
+            print("⚠️ No transactions returned")
+            time.sleep(60)
+            continue
+
+        # Sort newest → oldest
+        data.sort(key=lambda tx: int(tx["id"]), reverse=True)
+
+        # First run → just initialize pointer
+        if last_seen_id is None:
+            last_seen_id = str(data[0]["id"])
+            print("⚡ Initialized. Waiting for new sales...")
+        else:
+            new_sales = []
+
+            for tx in data:
+                tx_id = str(tx["id"])
+                if tx_id == last_seen_id:
+                    break
+                new_sales.append(tx)
+
+            if new_sales:
+                # Send oldest first
+                for tx in reversed(new_sales):
                     username = tx["agent"]["name"]
                     item = tx["details"]["name"]
                     amount = tx["currency"]["amount"]
 
-                    content = f"🛒 **SALE**\nUser: {username}\nItem: {item}\nAmount: {amount}"
-                    send_discord_message(content)
+                    print(f"🆕 NEW SALE: {username} | {item} | {amount}")
 
-                    seen_ids.add(str(tx["id"]))
-                first_run = False
+                    msg = (
+                        f"🛒 **NEW SALE**\n"
+                        f"👤 User: {username}\n"
+                        f"📦 Item: {item}\n"
+                        f"💰 Amount: {amount}"
+                    )
+
+                    send_discord_message(msg)
+
+                # Update pointer to newest transaction
+                last_seen_id = str(data[0]["id"])
+                print(f"⚡ Sent {len(new_sales)} new sale(s)")
             else:
-                # ─── NORMAL LOOP ───────────────────
-                new_sales_count = 0
-                for tx in data:
-                    tx_id = str(tx["id"])
-                    if tx_id not in seen_ids:
-                        seen_ids.add(tx_id)
-                        new_sales_count += 1
-
-                        username = tx["agent"]["name"]
-                        item = tx["details"]["name"]
-                        amount = tx["currency"]["amount"]
-
-                        print(f"🆕 NEW SALE: {username} | {item} | {amount}")
-
-                        content = f"🛒 **NEW SALE**\nUser: {username}\nItem: {item}\nAmount: {amount}"
-                        send_discord_message(content)
-
-                if new_sales_count == 0:
-                    print("⏳ No new sales this round")
-                else:
-                    print(f"⚡ Sent {new_sales_count} new sale(s)")
-
-        else:
-            print("❌ Error:", r.text)
+                print("⏳ No new sales")
 
     except Exception as e:
         print("💥 Crash:", e)
